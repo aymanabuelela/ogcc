@@ -4,10 +4,12 @@
 \alias{getMSF}
 \title{Get minimum set of features (getMSF)}
 \usage{
-getMSF(model = "types")
+getMSF(model = "types", d = "RSEM")
 }
 \arguments{
 \item{model}{is a prediction model name from \code{\link{ogcc}}. See \code{model} argument.}
+
+\item{d}{a string indicating the RNA-Seq measurement type; either 'RSEM' or 'RPKM'. 'RSEM' by default.}
 }
 \value{
 a character vector of the required features for a working model.

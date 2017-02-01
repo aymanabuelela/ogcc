@@ -4,7 +4,7 @@
 \alias{getLabels}
 \title{Get the output labels (getLabels)}
 \usage{
-getLabels(model = "types")
+getLabels(model = "types", d = "RSEM")
 }
 \arguments{
 \item{model}{is a prediction model name from \code{\link{ogcc}}. See \code{model} argument.}
