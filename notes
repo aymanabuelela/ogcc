@@ -1,0 +1,4 @@
+#'       \item model \strong{\code{normal_tumor_reduced}}: the same as model \code{normal_tumor} but the features were reduced to the minimum set to bring 95\% accuracy.
+#'       \item model \strong{\code{normal_tumor_types}}: predicts whether the sample is normal or cancer in addition tissue type prediction.
+#'       \item model \strong{\code{normal_tumor_types_reduced}}: the same as model \code{normal_tumor_types} but the features were reduced to the minimum set to bring 95\% accuracy.
+#'       \item model \strong{\code{types_reduced}}: the same as model \code{types} but the features were reduced to the minimum set to bring 95\% accuracy.

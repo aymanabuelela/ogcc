@@ -11,7 +11,7 @@ ogcc(x, model = "types", d = "RSEM", output = "raw")
 
 \item{model}{a character string indicating the model to perform the prediction task. It must be one of the following: "normal_tumor", "normal_tumor_reduced", "normal_tumor_types", "normal_tumor_types_reduced", "types" and "types_reduced".}
 
-\item{d}{a string indicating the RNA-Seq measurement type; either 'RSEM' or 'RPKM'. 'RSEM' by default.}
+\item{d}{a string indicating the RNA-Seq measurement type; either 'RSEM', 'RPKM' or 'TPM'. 'RSEM' by default.}
 
 \item{output}{a character value indicating the form of prediction output of the model. It must be either "raw" or "probs".}
 }

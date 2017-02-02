@@ -3,7 +3,7 @@
 #' \code{ogcc} performs a group of cancer class predictions based on the expression of O-glycan-forming glycosyltransferase genes.
 #'
 #' @param x a numeric data frame or matrix of expression data where columns are the features and rows are cases/samples. The set of features must contain the minimum set of features for the specified model. See `Details`.
-#' @param d a string indicating the RNA-Seq measurement type; either 'RSEM' or 'RPKM'. 'RSEM' by default.
+#' @param d a string indicating the RNA-Seq measurement type; either 'RSEM', 'RPKM' or 'TPM'. 'RSEM' by default.
 #' @param model a character string indicating the model to perform the prediction task. It must be one of the following: "normal_tumor", "normal_tumor_reduced", "normal_tumor_types", "normal_tumor_types_reduced", "types" and "types_reduced".
 #' @param output a character value indicating the form of prediction output of the model. It must be either "raw" or "probs".
 #' @return a character vector in case of output = "raw" or a dataframe of class probalibilities in case of output = "probs"
@@ -51,25 +51,16 @@ ogcc <- function(x, model = "types", d = "RSEM", output = "raw") {
     }
 
     ## check d
-    d_ <- c('RSEM', 'RPKM')
+    d_ <- c('RSEM', 'RPKM', 'TPM')
     if (!(d %in% d_)) {
-        stop("ERROR: d must be either 'RPKM' or 'RSEM'.")
+        stop("ERROR: d must be either 'RPKM', 'RSEM' or 'TPM'.")
     }
 
     ## get model object
-    if (d == 'RSEM') {
-        model_obj <- rsem_pred[[model]]
-    } else {
-        model_obj <- rpkm_pred[[model]]
-    }
-
+    model_obj <- models[[tolower(d)]][["pred"]][[model]]
 
     ## determine the preprocessing object
-    if (d == 'RSEM') {
-        pp_obj <- rsem_pp[[model]]
-    } else {
-        pp_obj <- rpkm_pp[[model]]
-    }
+    pp_obj <- models[[tolower(d)]][["pp"]][[model]]
 
     ## preprocessing
     ppx <- predict(pp_obj, x)
@@ -102,16 +93,17 @@ ogcc <- function(x, model = "types", d = "RSEM", output = "raw") {
 
 getMSF <- function(model = "types", d = 'RSEM') {
     model_names <- c('types', 'normal_tumor')
-    if (model %in% model_names) {
-        if (d == 'RSEM') {
-            model_obj <- rsem_pred[[model]]
-        } else {
-            model_obj <- rpkm_pred[[model]]
-        }
-        return(model_obj$coefnames)
-    } else {
+    ## check model name
+    if (!(model %in% model_names)) {
         stop("ERROR: model name is not found. It must be one of the following: 'normal_tumor' and 'types'.")
     }
+    ## check d
+    d_ <- c('RSEM', 'RPKM', 'TPM')
+    if (!(d %in% d_)) {
+        stop("ERROR: d must be either 'RPKM', 'RSEM' or 'TPM'.")
+    }
+    model_obj <- models[[tolower(d)]][["pred"]][[model]]
+    return(model_obj$coefnames)
 }
 
 #' Get the output labels (getLabels)
@@ -131,17 +123,17 @@ getMSF <- function(model = "types", d = 'RSEM') {
 #' @export
 
 getLabels <- function(model = "types", d = 'RSEM') {
-    model_names <- c('types', 'normal_tumor')
-    if (model %in% model_names) {
-        if (d == 'RSEM') {
-            model_obj <- rsem_pred[[model]]
-        } else {
-            model_obj <- rpkm_pred[[model]]
-        }
-        return(model_obj$finalModel$classes)
-    } else {
+    ## check model name
+    if (!(model %in% model_names)) {
         stop("ERROR: model name is not found. It must be one of the following: 'normal_tumor' and 'types'.")
     }
+    ## check d
+    d_ <- c('RSEM', 'RPKM', 'TPM')
+    if (!(d %in% d_)) {
+        stop("ERROR: d must be either 'RPKM', 'RSEM' or 'TPM'.")
+    }
+    model_obj <- models[[tolower(d)]][["pred"]][[model]]
+    return(model_obj$finalModel$classes)
 }
 
 #' @importFrom utils data
