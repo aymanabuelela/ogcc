@@ -29,7 +29,7 @@
 #' @seealso \code{\link{getMSF}} and \code{\link{getLabels}}
 #' @export
 
-ogcc <- function(x, model = "types", d = "RSEM", output = "raw") {
+ogcc <- function(x, model = 'types', d = 'RSEM', output = 'raw') {
     ## check the class of x
     if (!is.matrix(x) & !is.data.frame(x)) {
         stop("ERROR: x must be a matrix or data frame")
@@ -91,7 +91,7 @@ ogcc <- function(x, model = "types", d = "RSEM", output = "raw") {
 #' @seealso \code{\link{ogcc}} and \code{\link{getLabels}}
 #' @export
 
-getMSF <- function(model = "types", d = 'RSEM') {
+getMSF <- function(model = 'types', d = 'RSEM') {
     model_names <- c('types', 'normal_tumor')
     ## check model name
     if (!(model %in% model_names)) {
@@ -122,7 +122,7 @@ getMSF <- function(model = "types", d = 'RSEM') {
 #' @seealso \code{\link{ogcc}} and \code{\link{getMSF}}
 #' @export
 
-getLabels <- function(model = "types", d = 'RSEM') {
+getLabels <- function(model = 'types', d = 'RSEM') {
     ## check model name
     if (!(model %in% model_names)) {
         stop("ERROR: model name is not found. It must be one of the following: 'normal_tumor' and 'types'.")
