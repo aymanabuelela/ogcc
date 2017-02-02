@@ -92,8 +92,8 @@ ogcc <- function(x, model = 'types', d = 'RSEM', output = 'raw') {
 #' @export
 
 getMSF <- function(model = 'types', d = 'RSEM') {
-    model_names <- c('types', 'normal_tumor')
     ## check model name
+    model_names <- c('types', 'normal_tumor')
     if (!(model %in% model_names)) {
         stop("ERROR: model name is not found. It must be one of the following: 'normal_tumor' and 'types'.")
     }
@@ -124,6 +124,7 @@ getMSF <- function(model = 'types', d = 'RSEM') {
 
 getLabels <- function(model = 'types', d = 'RSEM') {
     ## check model name
+    model_names <- c('types', 'normal_tumor')
     if (!(model %in% model_names)) {
         stop("ERROR: model name is not found. It must be one of the following: 'normal_tumor' and 'types'.")
     }
