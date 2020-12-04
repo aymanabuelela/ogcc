@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ## libraries
 library(rgl)
 library(TCGAbiolinks)
-library(TCGA2STAT)
+#library(TCGA2STAT)
 library(caret)
 library(ggplot2)
 library(MASS)
@@ -211,7 +211,6 @@ heatmap.2(
 )
 #dev.off()
 ```
-
 ```{r}
 # --- expression profile analysis ---#
 # ---visualisation ---#
@@ -225,6 +224,8 @@ plotDF <- melt(
 )
 pltDF_mean <- aggregate(value ~ IDH.status + variable, data = plotDF, FUN = mean)
 pltDF_sd <- aggregate(value ~ IDH.status + variable, data = plotDF, FUN = sd)
+
+extrafont::loadfonts()
 ggplot()+
     #geom_line(aes(x = plotDF$variable, y = plotDF$value, color = plotDF$IDH.status, group = plotDF$patient), alpha = 0.01)+
     geom_errorbar(aes(x = pltDF_mean$variable, ymin = pltDF_mean$value-pltDF_sd$value, ymax = pltDF_mean$value+pltDF_sd$value, color = pltDF_sd$IDH.status), width = 0.3, size = 0.5)+
@@ -234,7 +235,7 @@ ggplot()+
     geom_hline(yintercept = 0, size = 0.2)+
     ylab("Normalized expression")+
     xlab("")+
-    theme_Publication()+
+    #theme_Publication()+
     scale_colour_Publication(name="Subtype")+
     theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.3))
 ggsave("gbm-exp-figure.pdf", width = 12, height = 4, device = cairo_pdf)
@@ -407,6 +408,9 @@ pheatmap(
 ```{r}
 # --- Modelling (IDH + codel) --- #
 ## split the data into training and testing
+glioma$idh.codel <- idh.codel
+attach(glioma)
+
 set.seed(61186)
 glioma$idh.codel <- make.names(glioma$idh.codel)
 glioma <- na.omit(glioma)
@@ -537,7 +541,7 @@ ggplot()+
     geom_tile(aes(m.preds.cv$n, m.preds.cv$var2, fill=m.preds.cv$value))+
     scale_fill_gradient(low = "grey95", high = "midnightblue", name="Probability")+
     coord_polar(theta = "x")+
-    geom_tile(aes(m.preds.cv$n, 5), fill=col[as.numeric(as.factor(m.preds.cv$subtype))])+
+    geom_tile(aes(m.preds.cv$n, 5), fill=colors[as.numeric(as.factor(m.preds.cv$subtype))])+
     ylim(c(0,max(m.preds.cv$var2)+0.5))+
     theme_classic()+
     theme(
@@ -551,9 +555,33 @@ ggplot()+
     )
 ggsave("circ-heatmap-cv.pdf", width = 4, height = 4, device = cairo_pdf)
 
-
+## testing
+preds.testing <- data.frame(
+    subtype = pptesting$idh.codel,
+    predict(rdafit.idh, pptesting, type = "prob")
+)
+preds.testing <- preds.testing[order(preds.testing$subtype),]
+preds.testing$n <- factor(rownames(preds.testing), levels = as.numeric(rownames(preds.testing)))
+m.preds.testing <- melt(preds.testing, id.vars = c("subtype", "n"))
+m.preds.testing$var2 <- as.numeric(m.preds.testing$variable) + 5
+ggplot()+
+    geom_tile(aes(m.preds.testing$n, m.preds.testing$var2, fill=m.preds.testing$value))+
+    scale_fill_gradient(low = "grey95", high = "midnightblue", name="Probability")+
+    coord_polar(theta = "x")+
+    geom_tile(aes(m.preds.testing$n, 5), fill=colors[as.numeric(as.factor(m.preds.testing$subtype))])+
+    ylim(c(0,max(m.preds.testing$var2)+0.5))+
+    theme_classic()+
+    theme(
+        panel.background=element_blank(),
+        axis.title=element_blank(),
+        panel.grid=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks=element_blank(),
+        axis.text.y=element_blank(), 
+        axis.line = element_blank()
+    )
+ggsave("circ-heatmap-testing.pdf", width = 4, height = 4, device = cairo_pdf)
 ```
-
 
 
 
