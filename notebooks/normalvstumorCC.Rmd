@@ -1,0 +1,597 @@
+---
+title: "Untitled"
+author: "Ayman AbuElela"
+date: "November 20, 2016"
+output:
+  html_document: default
+  pdf_document: default
+---
+```{r init, cache=TRUE}
+## libraries ===================================================================
+library(MASS)
+library(gplots)
+library(RColorBrewer)
+library(caret)
+library(heatmap.plus)
+library(sparcl)
+library(reshape2)
+library(knitr)
+library(pheatmap)
+
+## load data ===================================================================
+setwd("/media/ayman/D3/CancerClassifier/NormalvsTumor/")
+dat = read.csv("/media/ayman/D3/CancerClassifier/NormalvsTumor/TCGA_NormalvsTumor_RSEM_GTs.csv", header=T, row.names = 1)
+dim(dat)
+
+## data preprocessing ==========================================================
+set.seed(61186)
+pp = preProcess(dat, method=c("nzv", "center", "scale", "YeoJohnson"))
+ppdat = predict(pp, dat)
+ppdattype = split(ppdat, ppdat$type)
+
+## heatmap =====================================================================
+qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
+col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+pal = colorRampPalette(c("red", "black", "green"))(n = 128)
+```
+
+## PCA
+
+```{r pca, cache=T}
+for (i in 1:length(ppdattype)) {
+    DF = ppdattype[[i]]
+    matdat = as.matrix(DF[,-c(ncol(DF)-1,ncol(DF))])
+    tissuecol = ifelse(DF$tissue=="normal", "red", "blue")
+    ##PCA
+    pca = prcomp(matdat)
+    p1 = ggplot(as.data.frame(pca$x), aes(PC1, PC2, color=DF$tissue))+
+        geom_point(alpha=0.5)+
+        scale_color_manual(values = c("red", "blue"))+
+        theme_bw()+
+        ggtitle(names(ppdattype)[i])
+    print(p1)
+    filename = file.path("./Screenshots/", paste0(names(ppdattype)[i], ".pdf"))
+    ggsave(filename=filename, plot=p1, width=5, height=4)
+}
+```
+
+```{r pcasummary, cache=T, results="asis"}
+for (i in 1:length(ppdattype)) {
+    if (nrow(DF)>=100) {
+    DF = ppdattype[[i]]
+    matdat = as.matrix(DF[,-c(ncol(DF)-1,ncol(DF))])
+    tissuecol = ifelse(DF$tissue=="normal", "red", "blue")
+    ##PCA
+    pca = prcomp(matdat)
+    print(names(ppdattype)[i])
+    print(kable(as.data.frame(head(t(summary(pca)$importance)))))
+}}
+    #print(p1)
+    #matdat = matdat[order(pca$x[,1]),order(pca$rotation[,1])]
+    #rowcols = as.matrix(cbind(col_vector[as.numeric(factor(ppdat$type))], tissuecol))
+```
+
+## Hierarchical clustering
+
+```{r coldend, cache=T}
+for (i in 1:length(ppdattype)) {
+    DF = ppdattype[[i]]
+    if (nrow(DF)>=100) {
+    matdat = as.matrix(DF[,-c(ncol(DF)-1, ncol(DF))])
+    tissuecol = ifelse(DF$tissue=="normal", "red", "blue")
+    dd = dist(matdat, method="euc")
+    hh = hclust(dd, method="ward")
+    ##hclust
+    filename = file.path("./Screenshots/", paste0(names(ppdattype)[i], "_dendogram.pdf"))
+    #pdf(filename, width = 6, height = 3)
+    ColorDendrogram(hc=hh, y=tissuecol,
+                    branchlength = 34, main = names(ppdattype)[i] 
+                    #labels = ss$mod_id
+    )
+    #dev.off()
+}}
+```
+
+## RDA model fit
+
+```{r rda, cache=T}
+misclassrisk <- function(x) { 
+    (sum(x) - sum(diag(x)))/sum(x) 
+}
+dattype = split(dat, dat$type)
+rdafits = list()
+rdafits2 = list()
+for (i in 1:length(ppdattype)) {
+    DF2 = dattype[[i]]
+    set.seed(61186)
+    intrain = createDataPartition(DF2$tissue, p=0.5, list=F)
+    training = DF2[intrain,]
+    testing = DF2[-intrain,]
+    dim(testing)
+    dim(training)
+    set.seed(61186)
+    pp  = preProcess(training, method=c("nzv", "scale", "center", "YeoJohnson"))
+    pptraining = predict(pp, training)
+    set.seed(61186)
+    rdaGrid = data.frame(gamma = (1:4)/4, lambda = 0.75)
+    ctrl = trainControl(method = "LOOCV",
+                        summaryFunction = twoClassSummary,
+                        classProbs = T,
+                        savePredictions = T
+                        #verboseIter = T
+    )
+    rdafits2[[i]] = train(tissue~., data = pptraining, method="rda", trControl=ctrl, tuneGrid=rdaGrid, metric="ROC")
+    names(rdafits2)[i] = names(dattype)[i]
+    pptesting = predict(pp, testing)
+    rpreds = predict(rdafits2[[i]], pptesting)
+    print(rdafits2[[i]]$finalModel)
+    print(rdafits2[[i]])
+    confmat = confusionMatrix(rpreds, testing$tissue)
+    print(confmat)
+    filename = file.path("./Screenshots/", paste0("rda_testing_confmat_",names(dattype)[i],".pdf"))
+        pdf(filename, width = 4, height = 3)
+        pheatmap(confmat$table,
+                 display_numbers = T,
+                 number_color = "black",
+                 number_format = "%d",
+                 color = colorRampPalette(brewer.pal(10, "Blues"))(13),
+                 breaks = seq(0,65,5)
+                 #border_color = NA
+                 )
+        dev.off()
+    
+    DF = ppdattype[[i]]
+    matdat = as.matrix(DF[,-c(ncol(DF)-1, ncol(DF))])
+    tissuecol = ifelse(DF$tissue=="normal", "red", "blue")
+    ##RDA model
+    
+    if (nrow(DF)>=100) {
+        print(names(ppdattype)[i])
+        set.seed(61186)
+        intrain = createDataPartition(DF$tissue, p=0.5, list=F)
+        training = DF[intrain,-ncol(DF)]
+        testing = DF[-intrain,-ncol(DF)]
+        set.seed(61186)
+        rdaGrid = data.frame(gamma = (1:4)/4, lambda = 0.75)
+        ctrl = trainControl(method = "LOOCV",
+                            summaryFunction = twoClassSummary,
+                            classProbs = T,
+                            savePredictions = T 
+                            #verboseIter = T
+                            )
+        rdafits[[i]] = train(tissue~., data=training, method="rda", 
+                             trControl=ctrl, tuneGrid= rdaGrid,
+                             metric = "ROC"
+                             )
+        names(rdafits)[i] = names(ppdattype)[i]
+        preds = predict(rdafits[[i]], testing)
+        confmat = confusionMatrix(preds, testing$tissue)
+        print(confmat$byClass)
+        print(confmat)
+        filename = file.path("./Screenshots/", paste0("rda_testing_confmat_",names(ppdattype)[i],".pdf"))
+        pdf(filename, width = 4, height = 3)
+        pheatmap(confmat$table,
+                 display_numbers = T,
+                 number_color = "black",
+                 number_format = "%d",
+                 color = colorRampPalette(brewer.pal(10, "Blues"))(13),
+                 breaks = seq(0,65,5)
+                 #border_color = NA
+                 )
+        dev.off()
+        #print(confusionMatrix(rdafits[[i]]))
+        print(rdafits[[i]]$finalModel)
+        print(rdafits[[i]])
+        print(plot(varImp(rdafits[[i]]), top=55))
+
+    }
+}
+```
+
+## LDA
+
+```{r lda, cache=T}
+for (i in 1:length(ppdattype)) {
+    DF = ppdattype[[i]]
+    matdat = as.matrix(DF[,-c(56,57)])
+    tissuecol = ifelse(DF$tissue=="normal", "red", "blue")
+    if (nrow(DF)>=100) {
+        ## LDA
+        set.seed(61186)
+        ldafit = lda(tissue~., DF[,-ncol(DF)])
+        preds.lf = predict(ldafit, DF)
+        plotdat = data.frame(
+            tissue = DF$tissue,
+            ld = preds.lf$x[,1]
+        )
+        p2 = ggplot(plotdat, aes(x=tissue, y=ld, fill=tissue))+
+            geom_boxplot()+
+            theme_bw()+
+            scale_fill_manual(values = c("red", "blue"))+
+            theme(legend.position = "none")+
+            ylab("LD")
+        filename = file.path("./Screenshots/", paste0("lda_", names(ppdattype)[i], ".pdf"))   
+        ggsave(plot=p2, filename=filename, width=2, height=4, useDingbat=F)
+        print(p2)
+        
+        # p2 = ggplot(as.data.frame(preds.lf$x), aes(preds.lf$x[,1], fill=DF$tissue))+
+        #     geom_histogram(aes(y=1*..density..), alpha=0.3, color="black", 
+        #                    position="identity", bins=40)+
+        #     geom_density(alpha=0.1, linetype=2)+
+        #     theme_bw()+
+        #     scale_fill_manual(values=c("darkred", "darkblue"))
+        # print(p2)
+    }
+}
+```
+
+```{r fimp, cache=T}
+for (i in 1:length(ppdattype)) {
+    print(length(rdafits))
+    DF = ppdattype[[i]]
+    matdat = as.matrix(DF[,-c(ncol(DF)-1, ncol(DF))])
+    pca = prcomp(matdat)
+    tissuecol = ifelse(DF$tissue=="normal", "red", "blue")
+    if (nrow(DF)>=100) {
+        ## Feature importance
+        set.seed(61186)
+        ldafit = lda(tissue~., DF[,-ncol(DF)])
+        preds.lf = predict(ldafit, DF)
+        
+        glevels = row.names(pca$rotation)[order(pca$rotation[,1])]
+        glevels = factor(glevels, levels = glevels)
+        
+        ss = data.frame(importance = varImp(rdafits[[i]])$importance[,1],
+                        gene = rownames(varImp(rdafits[[i]])$importance)                
+        )
+        ss = ss[order(ss$importance, decreasing = F),]
+        ss$gene = factor(ss$gene, levels = ss$gene)
+        mm = melt(ldafit$means)
+        mm2 = data.frame(
+            Var1 = rep("Importance", nrow(ss)),
+            Var2 = ss$gene,
+            value = ss$importance
+        )
+        mm2$Var2 = factor(mm2$Var2, levels = ss$gene)
+        #mm3 = rbind(mm, mm2)
+        mDF = melt(DF[,-57], id.vars = c("tissue"))
+        mDF$variable = factor(mDF$variable, levels = glevels)
+        sdDF = dcast(mDF, variable~tissue, fun.aggregate = sd)
+        msdDF = melt(sdDF)
+        msdDF = data.frame(
+            Var1 = msdDF[,2],
+            Var2 = factor(msdDF[,1], levels = ss$gene),
+            value = msdDF$value
+        )
+        msdDF = msdDF[order(msdDF$Var2),]
+        mm3 = merge(mm, msdDF, by = c("Var1", "Var2"))
+        mm3$Var2 = factor(mm3$Var2, levels = ss$gene)
+        names(mm3)[3:4] = c("value", "sd")
+        
+        p3 = ggplot(mm3, aes(Var2, value))+
+            #geom_bar(stat="identity")+
+            geom_point(aes(x=mm3$Var2, y=mm3$value, color=mm3$Var1, group=mm3$Var1))+
+            geom_errorbar(width=0.2, aes(ymin=mm3$value-mm3$sd, ymax=mm3$value+mm3$sd, group=mm3$Var1, color=mm3$Var1), size=0.2)+
+            #geom_jitter(aes(x=mDF$variable, y=mDF$value, color=mDF$tissue), alpha=0.07)+
+            geom_line(aes(mm3$Var2, mm3$value, color=mm3$Var1, group=mm3$Var1))+
+            scale_color_manual(values = c("red", "blue", "gray"))+
+            geom_hline(yintercept = 0, linetype=2, color="black")+
+            theme_bw()+
+            coord_flip()
+        print(p3)
+        filename=file.path("./Screenshots/", paste0("exp_", names(ppdattype)[i], ".pdf"))
+        ggsave(plot=p3, filename = filename, width=4, height=7, useDingbat=F)
+        p4 = ggplot(mm2, aes(Var2, value))+
+            geom_bar(fill="gray", stat = "identity", alpha=0.5)+
+            theme_bw()+
+            coord_flip()
+        print(p4)
+    }
+}
+```
+
+```{r heatmap, cache=T}
+for (i in 1:length(ppdattype)) {
+    message(i)
+    DF = ppdattype[[i]]
+    matdat = as.matrix(DF[,-c(ncol(DF)-1, ncol(DF))])
+    tissuecol = ifelse(DF$tissue=="normal", "red", "blue")
+    if (nrow(DF)>=100) {
+        filename = file.path("./Screenshots/", paste0("heatmap_", names(ppdattype)[i], ".pdf"))
+        pdf(filename, width = 7, height = 4)
+        ##heatmapreds = predict(rdaall, testing)
+        matdat2 = matdat[,order(varImp(rdafits[[i]])$importance[,1])]
+        heatmap(matdat2, trace="none", hclustfun = function (x) {
+            hclust(dist(matdat, method = "euc"), method = "ward")
+        }, #distfun = dd,
+        col=pal, Colv = NA,
+        RowSideColors = tissuecol)
+        dev.off()
+    }
+}
+```
+
+```{r ldaall, cache=T}
+ppdat$tistyp = paste0(ppdat$tissue, ppdat$type)
+typesubset = c("brca", "kipan", "kirc", "lihc", "luad", "lusc")
+ssppdat = ppdat[ppdat$type %in% typesubset,]
+#pca = prcomp(ssppdat)
+ldaall = lda(tistyp~., ssppdat[,-c(ncol(DF)-1, ncol(DF))])
+pldaall = predict(ldaall, ssppdat)
+# ggplot(as.data.frame(pldaall$x), aes(LD1, LD2, shape=ssppdat$tissue, color=ssppdat$type))+
+#     geom_point()
+# id = ssppdat$tistyp
+# ldadat = cbind(id, pldaall$x)
+# write.csv(ldadat, "/media/ayman/D3/CancerClassifier/NormalvsTumor/ldadatall.csv", row.names = F, quote = F)
+##########
+
+```
+
+```{r rdaall, cache=T}
+dat$tistyp = paste0(dat$tissue, dat$type)
+ssdat = dat[dat$type %in% typesubset,]
+ssdat$tistyp2 = gsub("normalkipan|normalkirc", "normalkidney", ssdat$tistyp)
+ssdat$tistyp2 = gsub("tumorkipan|tumorkirc", "tumorkidney", ssdat$tistyp2)
+ssdat$tistyp2 = gsub("normalluad|normallusc", "normallung", ssdat$tistyp2)
+ssdat$tistyp2 = gsub("tumorluad|tumorlusc", "tumorlung", ssdat$tistyp2)
+set.seed(61186)
+intrain = createDataPartition(ssdat$tistyp2, p=0.7, list = F)
+training = ssdat[intrain,]
+testing = ssdat[-intrain,]
+
+set.seed(61186)
+pp = preProcess(training, method=c("nzv", "scale", "center", "YeoJohnson"))
+pptraining = predict(pp, training)
+set.seed(61186)
+ctrl = trainControl(method = "repeatedcv",
+                    number = 10,
+                    repeats = 10,
+                    #summaryFunction = multiClassSummary,
+                    classProbs = T,
+                    savePredictions = T,
+                    verboseIter = T
+                    )
+rdaall2 = train(factor(tistyp2)~., data = pptraining[,-c(ncol(pptraining)-2:ncol(pptraining))], method="rda", tuneGrid=rdaGrid, trControl=ctrl, metric="ROC")
+
+pptesting = predict(pp, testing)
+preds2 = predict(rdaall2, pptesting)
+confmat <- confusionMatrix(preds2, testing$tistyp2)
+
+set.seed(61186)
+ssppdat$tistyp2 = gsub("normalkipan|normalkirc", "normalkidney", ssppdat$tistyp)
+ssppdat$tistyp2 = gsub("tumorkipan|tumorkirc", "tumorkidney", ssppdat$tistyp2)
+ssppdat$tistyp2 = gsub("normalluad|normallusc", "normallung", ssppdat$tistyp2)
+ssppdat$tistyp2 = gsub("tumorluad|tumorlusc", "tumorlung", ssppdat$tistyp2)
+# intrain = createDataPartition(ssppdat$tistyp2, p=0.7, list = F)
+# training = ssppdat[intrain,]
+# testing = ssppdat[-intrain,]
+# set.seed(61186)
+# ctrl = trainControl(method = "repeatedcv",
+#                     number = 10,
+#                     repeats = 10,
+#                     #summaryFunction = multiClassSummary,
+#                     classProbs = T,
+#                     savePredictions = T#,
+#                     #verboseIter = T
+#                     )
+# rdaall = train(factor(tistyp2)~., data = training[,-c(56:58)], method="rda", tuneGrid=rdaGrid, trControl=ctrl, metric="ROC")
+# preds = predict(rdaall, testing)
+# confmat = confusionMatrix(preds, testing$tistyp2)
+print(confmat$byClass)
+print(confmat)
+filename = file.path("./Screenshots/", "rdall_testing_confmat.pdf")
+pdf(filename, width = 5, height = 4)
+pheatmap(confmat$table,
+         display_numbers = T,
+         number_color = "black",
+         number_format = "%d",
+         color = colorRampPalette(brewer.pal(10, "Blues"))(10),
+         cluster_rows = F, cluster_cols = F
+         #border_color = NA
+        )
+dev.off()
+print(confusionMatrix(rdaall2))
+filename = file.path("./Screenshots/", "rdall_CV_confmat.pdf")
+pdf(filename, width = 5, height = 4)
+pheatmap(confusionMatrix(rdaall2)$table,
+         display_numbers = T,
+         number_color = "black",
+         number_format = "%.0f",
+         color = colorRampPalette(brewer.pal(10, "Blues"))(10),
+         cluster_rows = F, cluster_cols = F
+         #border_color = NA
+        )
+dev.off()
+print(rdaall2$finalModel)
+print(rdaall2)
+```
+
+```{r fimpall, cache=T}
+ff = filterVarImp(ssppdat[,-c((ncol(ssppdat)-4):ncol(ssppdat))], y = factor(ssppdat$tistyp2))
+ff$gene = row.names(ff)
+ff = ff[order(apply(ff[,-9],1,sum)),]
+ff$gene = factor(ff$gene, levels = ff$gene)
+mff = melt(ff, id.vars = "gene")
+ggplot(mff, aes(gene, value, group=variable, color=variable))+
+    #geom_line()+
+    geom_point(shape=15, size=1.5)+
+    #facet_grid(.~variable)+
+    theme_bw()+
+    theme(axis.text.x = element_text(angle = 90))+
+    scale_color_manual(values = col_vector)+
+    coord_flip()
+filename= file.path("./Screenshots/", "rdaall_featureImp.pdf")
+ggsave(filename, width=4, height = 7)
+```
+
+```{r rdacollective, cache=T}
+ctrl = trainControl(method = "repeatedcv",
+                    number = 10,
+                    repeats = 10,
+                    summaryFunction = twoClassSummary,
+                    classProbs = T,
+                    savePredictions = T,
+                    verboseIter = T
+                    )
+rdacollective = train(tissue~., data = pptraining[,-c((ncol(pptraining)-2):ncol(pptraining))], method="rda", tuneGrid=rdaGrid, trControl=ctrl, metric="ROC")
+preds = predict(rdacollective, pptesting)
+confmat = confusionMatrix(preds, testing$tissue)
+print(confmat$byClass)
+print(confmat)
+filename = file.path("./Screenshots/", "rdcollective_testing_confmat.pdf")
+pdf(filename, width = 4, height = 3)
+pheatmap(confmat$table,
+         display_numbers = T,
+         number_color = "black",
+         number_format = "%d",
+         color = colorRampPalette(brewer.pal(10, "Blues"))(10)
+         #border_color = NA
+        )
+dev.off()
+print(confusionMatrix(rdacollective))
+filename = file.path("./Screenshots/", "rdacollective_CV_confmat.pdf")
+pdf(filename, width = 4, height = 3)
+pheatmap(confusionMatrix(rdacollective)$table,
+         display_numbers = T,
+         number_color = "black",
+         #number_format = "%d",
+         color = colorRampPalette(brewer.pal(10, "Blues"))(10)
+         #border_color = NA
+        )
+dev.off()
+print(rdacollective$finalModel)
+print(rdacollective)
+```
+
+```{r ldacollective, cache=T}
+ldacollective = lda(tissue~., data=ssppdat[,-c((ncol(ssppdat)-2):ncol(ssppdat))])
+pldacollective = predict(ldacollective, ssppdat)
+p5 = ggplot(as.data.frame(pldacollective$x), aes(pldacollective$x[,1], fill=ssppdat$tissue))+
+        geom_histogram(aes(y=1*..density..), alpha=0.3, color="black", 
+                       position="identity", bins=40)+
+        geom_density(alpha=0.1, linetype=2)+
+        theme_bw()+
+        scale_fill_manual(values=c("darkred", "darkblue"))
+print(p5)
+filename=file.path("./Screenshots/", "ldaCollective.pdf")
+ggsave(plot = p5, filename = filename, width=5, height = 3)
+```
+
+```{r heatmapall, cache=T}
+ssppdatmat = as.matrix(ssppdat[,-c((ncol(ssppdat)-3):ncol(ssppdat))])
+heatmap.plus(ssppdatmat, trace="none", #hclustfun = function (x) {
+            #hclust(dist(matdat, method = "euc"), method = "ward")
+        #}, #distfun = dd,
+        col=pal, #Colv = NA, Rowv = NA,
+        RowSideColors = cbind(col_vector[as.numeric(factor(ssppdat$type))], c("red", "blue")[as.numeric(factor(ssppdat$tissue))]))
+```
+
+```{r OR, cache=T}
+```
+
+```{r validationExternal, cache=T}
+
+```
+
+## Cross set validation
+
+```{r crossset}
+## dat is the normal-matched tumor samples set `TCGA_NormalmatchTumor_RSEM_GTs.csv`
+
+# ## set seed
+# set.seed(61186)
+# 
+# ## split into training and testing
+# intrain <- createDataPartition(dat$tissue, p=0.7, list=F)
+# training <- dat[intrain,]
+# testing <- dat[-intrain,]
+# 
+# ## preprocessing model
+# pp <- preProcess(x = training[,-c(56,57)], method = c('nzv', 'center', 'scale', 'YeoJohnson'))
+# pptraining <- predict(pp, training)
+# 
+# ## train RDA model
+# rdaGrid <- expand.grid(gamma = 0:1/4, lambda = 0:1/4)
+# setOutList <- list()
+# types <- unique(training$type)
+# for (i in 1: length(types)) {
+#     indecies <- grep(types[i], training$type)
+#     setOutList[[i]] <- indecies
+#     names(setOutList)[i] <- types[i]
+# }
+# ctrl = trainControl(
+#     method = 'cv',
+#     number = 10,
+#     savePredictions = T, 
+#     summaryFunction = twoClassSummary, 
+#     indexOut = setOutList
+# )
+# crossSetFit <- train(
+#     tissue ~ .,
+#     data = pptraining[,-57],
+#     method = 'rda',
+#     trContron = ctrl, 
+#     tuneGrid = rdaGrid
+# )
+```
+
+## Differential expresison =====================================================
+
+## Clustering ==================================================================
+
+### Hirarchical
+plot(hh)
+
+### PCA
+pca = prcomp(matdat)
+ggplot(as.data.frame(pca$x), aes(PC1,PC2, color=ppdat$tissue))+
+    geom_contour()
+
+## develop the rda model =======================================================
+
+## the linear discriminant =====================================================
+# ldafit = lda(tissue~., tisdat)
+# pp = predict(ldafit, tisdat)
+# dim(pp$x)
+# head(pp$x)
+# 
+# ## Feature importance
+# library(ggplot2)
+# ss = data.frame(LD1=ldafit$scaling[order(ldafit$scaling[,1]),])
+# ss$gene = factor(rownames(ss), levels = rownames(ss))
+# library(reshape2)
+# mm = melt(ldafit$means)
+# tt = mm[mm$Var1=="tumor",]
+# tt = tt[ss$gene,]
+# tt$Var2 = factor(tt$Var2, levels = tt$Var2[ss$gene])
+# nn = mm[mm$Var1=="normal",]
+# nn$Var1 = factor(nn$Var2, levels = ss$gene)
+# ggplot(ss, aes(gene, LD1))+
+#     geom_bar(stat="identity")+
+#     geom_point(aes(x=tt$Var2, y=tt$value, color=tt$Var1))+
+#     coord_flip()
+# 
+# library(reshape2)
+# mm = melt(ldafit$means)
+# ll = cbind(rep("LD1", 55),rownames(ldafit$scaling), ldafit$scaling)
+# dd = rbind(mm,ll)
+# colnames(ll) = c("Var1", "Var2", "value")
+# dd = rbind(mm,as.data.frame(ll))
+# dd$value = as.numeric(dd$value)
+# ggplot(dd[order(dd$value),],aes(Var2, value, color=Var1))+geom_point(shape=19)+coord_flip()+geom_hline(yintercept=0)
+# 
+# ### Plot the linear discriminant
+# mdat = melt(tisdat)
+# ggplot(mdat, aes(variable, value, fill=tissue))+geom_boxplot()+coord_flip()
+# ggplot(as.data.frame(pp$x), aes(pp$x[,1], fill=tisdat$tissue))+
+#     geom_histogram(aes(y=1*..density..), alpha=0.3, color="black", 
+#                    position="identity")+
+#     geom_density(alpha=0.1, linetype=2)+
+#     theme_bw()+
+#     scale_fill_manual(values=c("darkred", "darkblue"))
+
+## Calculate the odds ratio from logistic regression model =====================
+
+
+## validate against external dataset ===========================================
+```
