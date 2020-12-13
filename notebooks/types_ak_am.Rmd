@@ -34,21 +34,6 @@ library(MLmetrics)
 ```
 
 ```{r}
-## color
-colors = c(
-    "#386cb0",
-    "#fdb462",
-    "#7fc97f",
-    "#ef3b2c",
-    "#662506",
-    "#a6cee3",
-    "#fb9a99",
-    "#984ea3",
-    "#ffff33"
-)
-```
-
-```{r}
 # --- importing data  ---#
 expression_data_dir <- '/Users/mohama32/Documents/projects/GTCancerClassifier/OGFGT_data/'
 meta_data_dir <- '/Users/mohama32/Documents/projects/GTCancerClassifier/OGFGT/data'
