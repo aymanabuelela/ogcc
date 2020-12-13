@@ -1,0 +1,587 @@
+---
+title: "glioma_subtypes"
+author: "ayman.abuelela"
+date: "03/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+## libraries
+library(rgl)
+library(TCGAbiolinks)
+#library(TCGA2STAT)
+library(caret)
+library(ggplot2)
+library(MASS)
+library(heatmap.plus)
+library(reshape2)
+library(RColorBrewer)
+library(ConsensusClusterPlus)
+library(sigclust)
+library(pheatmap)
+library(tsne)
+library(gplots)
+library(ggradar)
+library(doMC)
+```
+
+```{r}
+## color
+colors = c(
+    "#386cb0",
+    "#fdb462",
+    "#7fc97f",
+    "#ef3b2c",
+    "#662506",
+    "#a6cee3",
+    "#fb9a99",
+    "#984ea3",
+    "#ffff33"
+)
+```
+
+```{r}
+# --- importing data  ---#
+expression_data_dir <- '/Users/mohama32/Documents/projects/GTCancerClassifier/OGFGT_data/'
+meta_data_dir <- '/Users/mohama32/Documents/projects/GTCancerClassifier/OGFGT/data'
+
+# import list of GT genes
+gt_file <- file.path(meta_data_dir, 'GT_Genes2.txt')
+gt <- read.table(gt_file, header = F, stringsAsFactors = F)[,1]
+
+## get expression data
+#gbm <- getTCGA(disease = 'GBM', clinical = T)
+#lgg <- getTCGA(disease = 'LGG', clinical = T)
+#save(list = c('gbm', 'lgg'), file = 'glioma.rda')
+load(file.path(expression_data_dir, 'glioma.rda'))
+```
+
+```{r}
+# --- gene data ---#
+## subset expression data on the GT genes
+gbm_gt <- as.data.frame(t(gbm$dat[rownames(gbm$dat) %in% gt,]))
+lgg_gt <- as.data.frame(t(lgg$dat[rownames(lgg$dat) %in% gt,]))
+glioma_gt <- rbind(gbm_gt, lgg_gt)
+glioma_gt$patient <- sapply(
+    rownames(glioma_gt),
+    function (x) paste0(strsplit(x, "-")[[1]][1:3], collapse = "-")
+)
+```
+
+```{r}
+# --- col data (subtypes) ---#
+## get subtype data
+gbm_subtype <- TCGAbiolinks::TCGAquery_subtype(tumor = 'GBM')
+lgg_subtype <- TCGAbiolinks::TCGAquery_subtype(tumor = 'LGG')
+
+## subset the subtype data on Original.Subtype, ATRX.status and IDH.status
+grep_term <- "Original.Subtype|IDH.status|ATRX.status|patient"
+glioma_subtype <- rbind(
+    gbm_subtype[, grep(grep_term, colnames(gbm_subtype))],
+    lgg_subtype[, grep(grep_term, colnames(lgg_subtype))]
+)
+## merge expression data with subtype data
+glioma <- merge(glioma_subtype, glioma_gt)
+```
+
+```{r}
+# --- data preprocessing ---#
+## preporcess the data for exporation
+set.seed(61186)
+pp_explore <- preProcess(glioma, method = c('nzv', 'center', 'scale', 'YeoJohnson'))
+ppglioma <- predict(pp_explore, glioma)
+
+# --- data exploration ---#
+pca_glioma <- prcomp(ppglioma[,-c(1:4)])
+idh.idx <- !is.na(glioma$IDH.status)
+atrx.idx <- !is.na(glioma$ATRX.status)
+original.idx <- !is.na(glioma$Original.Subtype)
+IDH.status <- data.frame(
+    IDH.status = ifelse(
+        ppglioma$Original.Subtype == 'IDHmut-codel',
+        'IDHmut-codel',
+        ifelse(
+            ppglioma$Original.Subtype == 'IDHmut-non-codel',
+            'IDHmut-non-codel',
+            'IDH-wt'
+        )
+    )
+)
+
+# --- visualisation ---#
+p1 <- ggplot(
+    as.data.frame(pca_glioma$x[idh.idx,]),
+    aes(
+        PC1,
+        PC2,
+        color = glioma$IDH.status[idh.idx],
+        fill = glioma$IDH.status[idh.idx]))+
+    geom_point()+
+    stat_ellipse(geom="polygon", alpha=0.2, type = "t", linetype = 2)
+p1
+p2 <- ggplot(
+    as.data.frame(pca_glioma$x[atrx.idx,]),
+    aes(
+        PC1,
+        PC2,
+        color = glioma$ATRX.status[atrx.idx],
+        fill = glioma$ATRX.status[atrx.idx]))+
+    geom_point()+
+    stat_ellipse(geom="polygon", alpha=0.2, type = "t", linetype = 2)
+p2
+p3 <- ggplot(
+    as.data.frame(pca_glioma$x[original.idx,]),
+    aes(
+        PC1,
+        PC2,
+        color = glioma$Original.Subtype[original.idx],
+        fill = glioma$Original.Subtype[original.idx]))+
+    geom_point()+
+    stat_ellipse(geom="polygon", alpha=0.2, type = "t", linetype = 2)
+p3
+pltdt <- pca_glioma$x[original.idx,]
+```
+```{r}
+# --- EDA: LDA ---#
+## explore: LD for the original.subtype variable
+ld_original <- lda(Original.Subtype ~ ., data = glioma[,-c(1:3)])
+ld_projecions <- as.data.frame(predict(ld_original, glioma)$x)
+ld_subtype <- cbind(
+    data.frame(subtype = glioma$Original.Subtype),
+    ld_projecions
+)
+#write.csv(ld_subtype, 'ld_subtype.csv', row.names = T, quote = F)
+## TODO: check what confmat is needed for, available as .tex, 
+### check if it can be converted
+#cc <- data.frame(group=rownames(confmat$byClass), confmat$byClass[,-c(6,8:10)])
+#ld_idh <- cbind(
+#    data.frame(idh = glioma$IDH.status),
+#    ld_projecions
+#)
+#write.csv(ld_idh, 'ld_idh.csv', row.names = T, quote = F)
+plot3d(
+    ld_subtype[]
+)
+```
+
+```{r}
+# --- expression profile analysis ---#
+# --- visualisation ---#
+## explore: differential expression: heatmap
+idh.colors <- c("black", "gray")
+subtype.colors <- palette()
+color.mat <- as.matrix(
+    data.frame(
+        idh = idh.colors[factor(glioma$IDH.status)],
+        subtype = subtype.colors[factor(glioma$Original.Subtype)],
+        atrx = ifelse(
+            ppglioma[,4] == 'IDHmut-codel',
+            "red",
+            ifelse(
+                ppglioma[,4] == 'IDHmut-non-codel',
+                "blue",
+                "tan3"
+            )
+        )
+    )
+)
+color.mat[is.na(color.mat)] <- 'yellow'
+d <- dist(x = ppglioma[,-c(1:4)], method = 'max')
+hfun <- function (x) {hclust(
+    d = dist(x, method = 'euc'),
+    method = 'ward.D2'
+)}
+numeric_mat <- as.matrix(ppglioma[,-c(1:4)])
+numeric_mat <- numeric_mat[,order(pca_glioma$rotation[,1])]
+numeric_mat[numeric_mat> 2] <- 2
+numeric_mat[numeric_mat<  -2] <- -2
+#pdf("hc-gbm.pdf", width = 8, height = 16)
+heatmap.2(
+    as.matrix(numeric_mat), 
+    Colv = T,
+    RowSideColors = color.mat[,3],
+    trace = 'none',
+    col = colorRampPalette(c(rep("red", 1), "black", rep("green", 1)))(256),
+    hclustfun = hfun, 
+    labRow = F, key = F
+)
+#dev.off()
+```
+```{r}
+# --- expression profile analysis ---#
+# ---visualisation ---#
+plotDF <- melt(
+    cbind(
+        data.frame(patient = ppglioma$patient),
+        IDH.status,
+        numeric_mat
+    ),
+    id.vars = c('patient', 'IDH.status')
+)
+pltDF_mean <- aggregate(value ~ IDH.status + variable, data = plotDF, FUN = mean)
+pltDF_sd <- aggregate(value ~ IDH.status + variable, data = plotDF, FUN = sd)
+
+extrafont::loadfonts()
+ggplot()+
+    #geom_line(aes(x = plotDF$variable, y = plotDF$value, color = plotDF$IDH.status, group = plotDF$patient), alpha = 0.01)+
+    geom_errorbar(aes(x = pltDF_mean$variable, ymin = pltDF_mean$value-pltDF_sd$value, ymax = pltDF_mean$value+pltDF_sd$value, color = pltDF_sd$IDH.status), width = 0.3, size = 0.5)+
+    geom_line(aes(x = pltDF_mean$variable, y = pltDF_mean$value, color = pltDF_mean$IDH.status, group = pltDF_mean$IDH.status), size = 0.5)+
+    geom_point(aes(x = pltDF_mean$variable, y = pltDF_mean$value, color = pltDF_mean$IDH.status, group = pltDF_mean$IDH.status))+
+    #facet_grid(IDH.status~.)+
+    geom_hline(yintercept = 0, size = 0.2)+
+    ylab("Normalized expression")+
+    xlab("")+
+    #theme_Publication()+
+    scale_colour_Publication(name="Subtype")+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.3))
+ggsave("gbm-exp-figure.pdf", width = 12, height = 4, device = cairo_pdf)
+
+## expression profile: heatmap
+meanProfile <- dcast(pltDF_mean, IDH.status ~ variable)
+rownames(meanProfile) <- meanProfile[,1]
+colors <- colorRampPalette(c("darkblue", "white", "darkred"))(7)
+
+#pdf("gbm-meanexp.pdf", width = 12, height = 2.3)
+pheatmap::pheatmap(as.matrix(meanProfile[,-1]), color = colors)
+#dev.off()
+```
+```{r}
+# --- survival analysis ---#
+## subset expression data on the GT genes
+subset_vars <- c('bcr', 'status', 'OS', gt)
+gbm_gt <- as.data.frame(gbm$merged.dat[, colnames(gbm$merged.dat) %in% subset_vars])
+lgg_gt <- as.data.frame(lgg$merged.dat[, colnames(lgg$merged.dat) %in% subset_vars])
+glioma_gt <- rbind(gbm_gt, lgg_gt)
+glioma_gt$patient <- sapply(
+    glioma_gt$bcr,
+    function (x) paste0(strsplit(x, "-")[[1]][1:3], collapse = "-")
+)
+
+## get subtype data
+gbm_subtype <- TCGAquery_subtype(tumor = 'GBM')
+lgg_subtype <- TCGAquery_subtype(tumor = 'LGG')
+
+## subset the subtype data on Original.Subtype, ATRX.status and IDH.status
+grep_term <- "Original.Subtype|IDH.status|patient"
+glioma_subtype <- rbind(
+    gbm_subtype[, grep(grep_term, colnames(gbm_subtype))],
+    lgg_subtype[, grep(grep_term, colnames(lgg_subtype))]
+)
+
+## merge expression data with subtype data
+glioma <- merge(glioma_subtype, glioma_gt)
+
+## survival plotting function based on survival package
+## adopted from http://www.liuzlab.org/TCGA2STAT/viz.misc.R
+mypamr.plotsurvival <- function (group, survival.time, censoring.status, cols, lty, lwd)
+{
+    require(survival)
+    n.class <- length(unique(group))
+    junk <- survfit(Surv(survival.time, censoring.status) ~ as.factor(group))
+    junk2 <- coxph(Surv(survival.time, censoring.status) ~ as.factor(group))
+    pv <- 1 - pchisq(2 * (junk2$loglik[2] - junk2$loglik[1]),
+                     df = n.class - 1)
+    plot(junk, col = cols, xlab = "Years", ylab = "Probability of survival", lty=lty, lwd=lwd)
+    legend(x=15, y=1, col = cols, lty = lty, lwd=lwd, legend = as.character(1:n.class), box.lwd=1)
+    text(0.1 * max(survival.time), 0.25, paste("p =", as.character(round(pv, 4))), cex=0.8)
+    print(pv)
+    return()
+}
+
+## Plot survival data based on the IDH.status
+plotdat <- glioma[,c(2,5,6)]
+mypamr.plotsurvival(plotdat[,1], plotdat[,3]/365, plotdat[,2], cols = c('blue', 'red'), lty = c(1,2), lwd = c(2,2))
+
+## Plot survival data based on IDH.status and codeletion
+idh.codel <- ifelse(glioma$Original.Subtype == 'IDHmut-codel', 'IDHmut-codel', ifelse(glioma$Original.Subtype == 'IDHmut-non-codel', 'IDHmut-non-codel', 'IDHwt'))
+plotdat$idh.codel <- factor(idh.codel)
+#pdf("gbm-survival.pdf", width = 5, height = 5)
+mypamr.plotsurvival(plotdat[,4], plotdat[,3]/365, plotdat[,2], cols = colors[1:3], lty = c(1,1,1), lwd = c(2,2,2))
+#dev.off()
+
+## Plot survival data based on the IDH.status
+plotdat <- glioma[,c(2,5,6)]
+mypamr.plotsurvival(plotdat[,1], plotdat[,3]/365, plotdat[,2], cols = c('blue', 'red'), lty = c(1,2), lwd = c(2,2))
+
+## Plot survival data based on IDH.statu and codeletion
+idh.codel <- ifelse(glioma$Original.Subtype == 'IDHmut-codel', 'IDHmut-codel', ifelse(glioma$Original.Subtype == 'IDHmut-non-codel', 'IDHmut-non-codel', 'IDHwt'))
+plotdat$idh.codel <- factor(idh.codel)
+#pdf("gbm-survival.pdf", width = 5, height = 5)
+mypamr.plotsurvival(plotdat[,4], plotdat[,3]/365, plotdat[,2], cols = colors[1:3], lty = c(1,1,1), lwd = c(2,2,2))
+#dev.off()
+
+## plot survival data based on de novo clustering
+d <- glioma[,-c(1:6)]
+pp <- preProcess(d, method = c('nzv', 'center', 'scale', 'YeoJohnson'))
+ppd <- predict(pp, d)
+tppd <- t(ppd)
+set.seed(61186)
+cc <- ConsensusClusterPlus(d = tppd, maxK = 10, plot = 'pdf', seed = 1, reps = 1000)
+denovo2 <- cc[[2]]$consensusClass
+denovo3 <- cc[[5]]$consensusClass
+#pdf("gbm-survival-dn.pdf", width = 5, height = 5)
+mypamr.plotsurvival(denovo3, plotdat[,3]/365, plotdat[,2], cols = brewer.pal(9, "Dark2"), lwd = c(2,2,2), lty = rep(1,5))
+#dev.off()
+```
+
+```{r}
+# --- discard this chunk, 58 predictors, low performance, biclass, not mentioned in the manuscript
+# --- Modelling biclass RDA GBM model (Mut vs WT) ---#
+glioma$idh.codel <- idh.codel
+attach(glioma)
+## split the data into training and testing
+set.seed(61186)
+intrain <- createDataPartition(glioma$IDH.status[!is.na(glioma$IDH.status)], p = 0.7, list = F)
+training <- glioma[intrain,]
+testing <- glioma[-intrain,]
+
+## preprocessing
+pp <- preProcess(training[,-c(1:6,62)], method = c('nzv', 'center', 'scale', 'YeoJohnson'))
+pptraining <- predict(pp, training)
+
+## training control
+hold_out <- lapply(unique(idh.codel), function(x) grep(x, pptraining))
+steps <- seq(1, nrow(pptraining), ceiling(nrow(pptraining)/10))
+kfolds <- lapply(
+    steps,
+    function(x) {
+        seq(x, ifelse(x==steps[length(steps)], nrow(pptraining), x+steps[2]-steps[1]-1), 1)
+    }
+)
+indecies <- c(hold_out, kfolds)
+ctrl <- trainControl(
+    method = 'cv',
+    number = 10,
+    #summaryFunction = twoClassSummary,
+    savePredictions = T,
+    classProbs = T,
+    indexOut = indecies,
+    verboseIter = T
+)
+rdaGrid <- expand.grid(gamma = 1:4/4, lambda = 0:4/4)
+
+## training the RDA model
+data <- pptraining[!is.na(pptraining$IDH.status),]; data <- na.omit(data)
+data <- pptraining[,-c(1:4, 65)[-2]]
+# patients with IDH.status == NA
+# TCGA-06-5416, TCGA-19-1787, TCGA-19-4065, TCGA-HW-7493
+data <- na.omit(data)
+rdafit.idh <- train(
+    IDH.status ~ .,
+    data = data,
+    method = 'rda',
+    trControl = ctrl,
+    tuneGrid = rdaGrid,
+    metirc = 'ROC'
+)
+confmat <- confusionMatrix(rdafit.idh)
+pheatmap(
+    confmat$table,
+    color = brewer.pal(10, 'Blues'),
+    display_numbers = T,
+    number_color = 'black',
+    number_format = '%.2f',
+    cluster_rows = F,
+    cluster_cols = F
+)
+
+## blind internal testing
+pptesting <- predict(pp, testing)
+pptesting <- pptesting[!is.na(pptesting$IDH.status), ]
+preds <- predict(rdafit.idh, pptesting[,-c(1:4, 65)])
+confmat <- confusionMatrix(preds, pptesting$IDH.status[-201])
+pheatmap(
+    confmat$table,
+    color = brewer.pal(10, 'Blues'),
+    display_numbers = T,
+    number_color = 'black',
+    number_format = '%d',
+    cluster_rows = F,
+    cluster_cols = F
+)
+```
+
+```{r}
+# --- Modelling (IDH + codel) --- #
+## split the data into training and testing
+glioma$idh.codel <- idh.codel
+attach(glioma)
+
+set.seed(61186)
+glioma$idh.codel <- make.names(glioma$idh.codel)
+glioma <- na.omit(glioma)
+intrain <- createDataPartition(glioma$idh.codel[!is.na(glioma$idh.codel)], p = 0.7, list = F)
+training <- glioma[intrain,]
+testing <- glioma[-intrain,]
+
+## preprocessing
+pp <- preProcess(training[,-c(1:6,62)], method = c('nzv', 'center', 'scale', 'YeoJohnson'))
+pptraining <- predict(pp, training)
+
+## training control
+hold_out <- lapply(unique(idh.codel), function(x) grep(x, pptraining))
+steps <- seq(1, nrow(pptraining), ceiling(nrow(pptraining)/10))
+kfolds <- lapply(
+    steps,
+    function(x) {
+        seq(x, ifelse(x==steps[length(steps)], nrow(glioma), x+steps[2]-steps[1]-1), 1)
+    }
+)
+indecies <- c(hold_out, kfolds)
+ctrl <- trainControl(
+    method = 'repeatedcv',
+    number = 10, repeats = 10,
+    #summaryFunction = twoClassSummary,
+    savePredictions = T,
+    classProbs = T,
+    #indexOut = indecies,
+    verboseIter = T
+)
+rdaGrid <- expand.grid(gamma = 1:4/4, lambda = 0:4/4)
+
+## training the RDA model (multi class: IDHmut.codel IDHmut.non-codel, IDHwt)
+rdafit.idh <- train(
+    idh.codel ~ .,
+    data = pptraining[!is.na(pptraining$idh.codel),-c(1:6)],
+    method = 'rda',
+    trControl = ctrl,
+    tuneGrid = rdaGrid,
+    metirc = 'ROC'
+)
+confmat <- confusionMatrix(rdafit.idh, mode = "prec_recall")
+pdf("confmat-cv.pdf", width=3, height = 2.5)
+pheatmap(
+    confmat$table,
+    color = brewer.pal(10, 'Blues'),
+    display_numbers = T,
+    number_color = 'black',
+    number_format = '%.2f',
+    cluster_rows = F,
+    cluster_cols = F
+)
+dev.off()
+tt <- rdafit.idh$pred[rdafit.idh$pred$gamma == 0.25 & rdafit.idh$pred$lambda == 0.75,]
+confmat <- confusionMatrix(tt$pred, tt$obs, mode = "prec_recall")
+confmat
+pheatmap(
+    confmat$table,
+    color = brewer.pal(10, 'Blues'),
+    display_numbers = T,
+    number_color = 'black',
+    number_format = '%.2f',
+    cluster_rows = F,
+    cluster_cols = F
+)
+cc <- data.frame(group=rownames(confmat$byClass), confmat$byClass[,-c(6,8:10)])
+#devtools::install_github("ricardo-bion/ggradar", 
+#                          dependencies = TRUE)
+library (ggradar)
+ggradar(cc)
+ggsave("confmat-cv-radar.pdf", width = 12, height = 12, device = cairo_pdf)
+
+## blind internal testing
+pptesting <- predict(pp, testing)
+preds <- predict(rdafit.idh, pptesting[,-c(1:6, 62)])
+pptesting$idh.codel <- factor(pptesting$idh.codel)
+confmat <- confusionMatrix(preds, pptesting$idh.codel, mode="prec_recall")
+pdf("confmat-testing.pdf", width = 3, height = 2.5)
+pheatmap(
+    confmat$table,
+    color = brewer.pal(10, 'Blues'),
+    display_numbers = T,
+    number_color = 'black',
+    number_format = '%d',
+    cluster_rows = F,
+    cluster_cols = F
+)
+dev.off()
+cc <- data.frame(group=rownames(confmat$byClass), confmat$byClass[,-c(6,8:10)])
+ggradar(cc)
+ggsave("confmat-testing-radar.pdf", width = 12, height = 12, device = cairo_pdf)
+#write.confmat.tex(confmat$table, "confmat-testing.tex")
+#write.confmat.tex(confmat$byClass[,c(1:4,7,11)], "confmat-byclass-testing.tex")
+```
+
+```{r}
+# --- feature importance ---#
+vi <- filterVarImp(x = pptraining[,-c(1:6,ncol(pptraining))], y = factor(pptraining$idh.codel))
+vi <- vi[order(apply(vi,1,sum)),]
+vi$gene <- rownames(vi)
+vi$gene <- factor(vi$gene, levels = vi$gene)
+mvi <- melt(vi, id.vars = "gene") 
+ggplot(mvi, aes(gene, value, color=variable))+
+    #geom_hline(yintercept = seq(0.5,1.0,0.1), linetype=2, size=0.1)+
+    geom_point(shape=15, size=2, alpha=0.8)+
+    ylim(c(0.5,1))+
+    #coord_flip()+
+    #theme_Publication()+
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust=0.3, size=8))+
+    xlab("Gene")+
+    ylab("AUROC")+
+    scale_colour_Publication(name="Subtype") + 
+  theme(legend.margin=margin(t = 0, unit='cm'))
+ggsave("featureImp.pdf", width = 8, height = 3, device = cairo_pdf)
+
+# --- visualisation --- #
+## circular heatmap
+## CV
+preds.cv <- data.frame(
+    subtype = tt$obs,
+    tt[,3:5]
+)
+preds.cv <- preds.cv[order(preds.cv$subtype),]
+preds.cv$n <- factor(rownames(preds.cv), levels = as.numeric(rownames(preds.cv)))
+m.preds.cv <- melt(preds.cv, id.vars = c("subtype", "n"))
+m.preds.cv$var2 <- as.numeric(m.preds.cv$variable) + 5
+ggplot()+
+    geom_tile(aes(m.preds.cv$n, m.preds.cv$var2, fill=m.preds.cv$value))+
+    scale_fill_gradient(low = "grey95", high = "midnightblue", name="Probability")+
+    coord_polar(theta = "x")+
+    geom_tile(aes(m.preds.cv$n, 5), fill=colors[as.numeric(as.factor(m.preds.cv$subtype))])+
+    ylim(c(0,max(m.preds.cv$var2)+0.5))+
+    theme_classic()+
+    theme(
+        panel.background=element_blank(),
+        axis.title=element_blank(),
+        panel.grid=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks=element_blank(),
+        axis.text.y=element_blank(), 
+        axis.line = element_blank()
+    )
+ggsave("circ-heatmap-cv.pdf", width = 4, height = 4, device = cairo_pdf)
+
+## testing
+preds.testing <- data.frame(
+    subtype = pptesting$idh.codel,
+    predict(rdafit.idh, pptesting, type = "prob")
+)
+preds.testing <- preds.testing[order(preds.testing$subtype),]
+preds.testing$n <- factor(rownames(preds.testing), levels = as.numeric(rownames(preds.testing)))
+m.preds.testing <- melt(preds.testing, id.vars = c("subtype", "n"))
+m.preds.testing$var2 <- as.numeric(m.preds.testing$variable) + 5
+ggplot()+
+    geom_tile(aes(m.preds.testing$n, m.preds.testing$var2, fill=m.preds.testing$value))+
+    scale_fill_gradient(low = "grey95", high = "midnightblue", name="Probability")+
+    coord_polar(theta = "x")+
+    geom_tile(aes(m.preds.testing$n, 5), fill=colors[as.numeric(as.factor(m.preds.testing$subtype))])+
+    ylim(c(0,max(m.preds.testing$var2)+0.5))+
+    theme_classic()+
+    theme(
+        panel.background=element_blank(),
+        axis.title=element_blank(),
+        panel.grid=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks=element_blank(),
+        axis.text.y=element_blank(), 
+        axis.line = element_blank()
+    )
+ggsave("circ-heatmap-testing.pdf", width = 4, height = 4, device = cairo_pdf)
+```
+
+
+
