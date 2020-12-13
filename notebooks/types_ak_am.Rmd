@@ -1,0 +1,162 @@
+---
+title: "glioma_subtypes"
+author: "ayman.abuelela"
+date: "13/12/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+## libraries
+library(rgl)
+library(TCGAbiolinks)
+#library(TCGA2STAT)
+library(caret)
+library(ggplot2)
+library(MASS)
+library(heatmap.plus)
+library(reshape2)
+library(RColorBrewer)
+library(ConsensusClusterPlus)
+library(sigclust)
+library(pheatmap)
+library(tsne)
+library(gplots)
+library(ggradar)
+library(doMC)
+library(dplyr)
+library(tidyverse)
+library(plyr)
+library(MLmetrics)
+```
+
+```{r}
+## color
+colors = c(
+    "#386cb0",
+    "#fdb462",
+    "#7fc97f",
+    "#ef3b2c",
+    "#662506",
+    "#a6cee3",
+    "#fb9a99",
+    "#984ea3",
+    "#ffff33"
+)
+```
+
+```{r}
+# --- importing data  ---#
+expression_data_dir <- '/Users/mohama32/Documents/projects/GTCancerClassifier/OGFGT_data/'
+meta_data_dir <- '/Users/mohama32/Documents/projects/GTCancerClassifier/OGFGT/data'
+
+# import expression data
+gt_types_file <- file.path(expression_data_dir, 'Glycosyltransferase_TCGA_RNASeq2_RSEM.txt')
+gt_all = read_delim(gt_types_file, col_names = T, delim=" ")
+
+# import list of GT genes
+gt_file <- file.path(meta_data_dir, 'GT_Genes2.txt')
+gt <- read_tsv(gt_file, col_names = FALSE)
+```
+
+```{r classifier_init, echo=TRUE, message=FALSE, warning=FALSE, cache=TRUE}
+set.seed(1234)
+intrain     = createDataPartition(gt_all$.id, p=.7, list=FALSE)
+training    = gt_all[intrain,]
+testing     = gt_all[-intrain,]
+```
+
+```{r classifier_chooseSamples, echo=TRUE, message=FALSE, warning=FALSE, cache=TRUE, fig.height=10, fig.width=10}
+# sample selection
+# we may use PCA to better show that certain types can be collapsed in an unsupervised way. I could not do that since the number of types is too many**
+lda.fit = train(.id ~ ., data = training, method = "lda")
+predictions = predict(lda.fit, testing[,-1])
+confusionMatrix(predictions, as.factor(testing$.id))
+pheatmap(table(predictions, testing$.id), scale = "column", cluster_rows = FALSE, cluster_cols=FALSE)
+
+# --- collapsing samples by type ---#
+mod_id <- gt_all$.id
+mod_id <- gsub("^COAD$|^COADREAD$|^READ$", "COLORECTAL", mod_id)
+mod_id <- gsub("^LUAD$|^LUSC$", "LUNG", mod_id)
+mod_id <- gsub("^UCS$|^UCEC$", "UTERINE", mod_id)
+mod_id <- gsub("^PAAD$|^LIHC$|^CHOL$", "PARALIVER", mod_id)
+mod_id <- gsub("^ESCA$|^STAD$", "STOPH", mod_id)
+mod_id <- gsub("^GBM$|^GBMLGG$|^LGG$", "GLIOMA", mod_id)
+mod_id <- gsub("^KICH$|^KIPAN$|^KIRP$|^KIRC$","KIDNEY", mod_id)
+
+gt_all2 = cbind(mod_id, gt_all[,-1])
+unique(gt_all2$mod_id)
+```
+
+```{r repproc, cache=T, warning=F, message=F, echo=T}
+# --- preprocessing ---#
+set.seed(1234)
+intrain  = createDataPartition(y = mod_id, p = 0.7, list = FALSE)
+training = gt_all2[intrain,]
+testing  = gt_all2[-intrain,]
+set.seed(1234)
+pp       = preProcess(training, method = c("nzv", "scale", "center", "YeoJohnson"))
+pptraining   = predict(pp, training)
+```
+
+```{r classifier_diffMethods, echo=TRUE, message=FALSE, warning=FALSE, cache=TRUE, fig.height=10, fig.width=10}
+# --- I think this should stay to show that rda was picked based on performance, no bias ---#
+# --- algorithm/method choice ---#
+set.seed(123456)
+#methods = c("pam", "knn", "rf", "xgbTree", "lda", "rda", "xgbTree")
+methods = c("lda", "rda")
+measures = vector(length = length(methods), mode = "list")
+for (i in 1:length(methods)) {
+    method = methods[i]
+    print(method)
+    model.fit   = train(mod_id ~ ., data = training, method = method)
+    predictions = predict(model.fit, testing[,-1])
+    confmat = confusionMatrix(predictions, as.factor(testing$mod_id))
+    print(confmat)
+    pheatmap(table(predictions, testing$mod_id), scale = "column", cluster_rows=FALSE, cluster_cols=FALSE)
+    names(measures)[i] = method
+    measures[[i]] = confmat$byClass
+}
+measuresDF = ldply(measures, data.frame)
+```
+
+```{r compareMethods, echo=T, fig.height=20, fig.width=20, message=FALSE, warning=FALSE, cache=TRUE}
+# --- method comparison ---#
+type = unique(mod_id)
+measuresDF$type = rep(type, length(unique(measuresDF$.id)))
+measuresDFm = melt(measuresDF)
+measuresDFm = dcast(measuresDFm, .id + variable ~ type)
+measuresDFm = measuresDFm[-grep("Prevalence|Detection", measuresDFm$variable),]
+measuresList = split(measuresDFm, as.character(measuresDFm$variable))
+
+for (i in 1:length(measuresList)) {
+    print(names(measuresList)[i])
+    print(measuresList[[i]])
+    print(ggradar(measuresList[[i]][,-2]))
+}
+```
+
+```{r trainControl, echo=T, warning=F, message=F, cache=T}
+ctrl = trainControl(method = "repeatedcv",                # repeated K-folds
+                    number = 10,                          # 10 folds
+                    repeats = 10,                         # 10 repeats
+                    summaryFunction = multiClassSummary,  # Evaluate Performance 
+                    classProbs = T,                       # Estimate class probabilities
+                    savePredictions = T,
+                    verboseIter = T)
+```
+
+```{r tuneRDA, echo=T, message=F, warning=F, cache=T}
+rdaGrid = data.frame(gamma = (1:4)/4, lambda = 0.75)
+set.seed(1234)
+rdafit = train(mod_id ~ ., data = pptraining, method = "rda", tuneGrid = rdaGrid, trControl = ctrl)
+plot(rdafit)
+rdafit
+```
+
+
+
+

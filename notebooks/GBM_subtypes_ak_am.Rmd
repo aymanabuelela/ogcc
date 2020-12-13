@@ -48,11 +48,11 @@ colors = c(
 # --- importing data  ---#
 # TODO: data exceeds github limit, will need to upload to Zenodo 
 expression_data_dir <- '/Users/mohama32/Documents/projects/GTCancerClassifier/OGFGT_data/'
-meta_data_dir <- '/Users/mohama32/Documents/projects/GTCancerClassifier/OGFGT_data'
+meta_data_dir <- '/Users/mohama32/Documents/projects/GTCancerClassifier/OGFGT/data'
 
 # import list of GT genes
 gt_file <- file.path(meta_data_dir, 'GT_Genes2.txt')
-gt <- read.table(gt_file, header = F, stringsAsFactors = F)[,1]
+gt <- read_tsv(gt_file, col_names = FALSE)
 
 ## get expression data
 #gbm <- getTCGA(disease = 'GBM', clinical = T)
