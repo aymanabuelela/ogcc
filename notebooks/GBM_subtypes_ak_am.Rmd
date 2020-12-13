@@ -1,6 +1,6 @@
 ---
 title: "glioma_subtypes"
-author: "ayman.abuelela_alyaa.mohamed"
+author: "ayman.abuelela"
 date: "03/12/2020"
 output: html_document
 ---
