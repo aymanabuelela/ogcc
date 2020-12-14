@@ -31,6 +31,7 @@ library(dplyr)
 library(tidyverse)
 library(plyr)
 library(MLmetrics)
+library(sparcl)
 ```
 
 ```{r}
@@ -89,10 +90,11 @@ pptraining   = predict(pp, training)
 
 ```{r classifier_diffMethods, echo=TRUE, message=FALSE, warning=FALSE, cache=TRUE, fig.height=10, fig.width=10}
 # --- I think this should stay to show that rda was picked based on performance, no bias ---#
+# note - glioma among best performing 
 # --- algorithm/method choice ---#
 set.seed(123456)
-#methods = c("pam", "knn", "rf", "xgbTree", "lda", "rda", "xgbTree")
-methods = c("lda", "rda")
+#methods = c("pam", "knn", "rf", "xgbTree", "lda", "rda", "xgbTree", "lda")
+methods = c("rda")
 measures = vector(length = length(methods), mode = "list")
 for (i in 1:length(methods)) {
     method = methods[i]
@@ -142,6 +144,44 @@ plot(rdafit)
 rdafit
 ```
 
+```{r heatmap, echo=TRUE, message=FALSE, warning=FALSE, cache=TRUE, fig.width=10, fig.height=40}
+library(gplots)
+library(RColorBrewer)
+qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
+col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+pp2 <- preProcess(gt_all2[,-1], method = c("center", "nzv", "scale", "YeoJohnson"))
+moddat <- predict(pp2, gt_all2)
+pal = colorRampPalette(c("red","red","red", "black", "green","green","green"))(n = 128)
+dd = dist(as.matrix(moddat[,-1]), method="maximum")
+hh = hclust(dd, method="ward.D2")
+moddat = moddat[order(as.numeric(moddat$mod_id)),]
+
+# --- visualisation: heatmap ---#
+pdf ('../../plots/heatmap_types.pdf', width=10, height=14)
+heatmap.2(as.matrix(moddat[,-1]), trace="none", labRow = NA,
+          col=pal, #Rowv = NA,
+          RowSideColors = col_vector[as.numeric(factor(moddat$mod_id))],
+          hclustfun = function (x) {
+              hclust(dist(
+                  x, method="maximum")
+              , method = "ward.D2")
+          }, key = F
+)
+dev.off()
+
+# --- visualization: hierarchial clustering dendrogram ---#
+set.seed(1234)
+ss = sample(1:nrow(moddat), size=1000)
+ss = moddat[ss,]
+rownames(ss) = paste0(1:nrow(ss), ss$mod_id)
+dd = dist(as.matrix(ss[,-1]), method="maximum")
+hh = hclust(dd, method="ward.D2")
+
+ColorDendrogram(hc=hh, y=col_vector[as.numeric(factor(ss$mod_id))],
+                branchlength = 6, main = "canberra"
+                #labels = ss$mod_id
+                )
+```
 
 
 
