@@ -27,6 +27,7 @@ library(tsne)
 library(gplots)
 library(ggradar)
 library(doMC)
+library (tidyverse)
 ```
 
 ```{r}
@@ -52,7 +53,7 @@ meta_data_dir <- '/Users/mohama32/Documents/projects/GTCancerClassifier/OGFGT/da
 
 # import list of GT genes
 gt_file <- file.path(meta_data_dir, 'GT_Genes2.txt')
-gt <- read_tsv(gt_file, col_names = FALSE)
+gt <- read_tsv(gt_file, col_names = FALSE); gt <- gt$X1
 
 ## get expression data
 #gbm <- getTCGA(disease = 'GBM', clinical = T)
@@ -208,13 +209,14 @@ heatmap.2(
     trace = 'none',
     col = colorRampPalette(c(rep("red", 1), "black", rep("green", 1)))(256),
     hclustfun = hfun, 
-    labRow = F, key = F
+    labRow=NULL, key=FALSE
 )
 #dev.off()
 ```
 ```{r}
 # --- expression profile analysis ---#
 # ---visualisation ---#
+source('../R/theme_publication.R')
 plotDF <- melt(
     cbind(
         data.frame(patient = ppglioma$patient),
