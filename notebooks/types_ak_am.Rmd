@@ -1,5 +1,5 @@
 ---
-title: "glioma_subtypes"
+title: "cancer_types"
 author: "ayman.abuelela"
 date: "13/12/2020"
 output: html_document
