@@ -75,6 +75,7 @@ mod_id <- gsub("^KICH$|^KIPAN$|^KIRP$|^KIRC$","KIDNEY", mod_id)
 
 gt_all2 = cbind(mod_id, gt_all[,-1])
 unique(gt_all2$mod_id)
+confusionMatrix(predictions, as.factor(testing$.id))
 ```
 
 ```{r repproc, cache=T, warning=F, message=F, echo=T}
@@ -86,9 +87,10 @@ testing  = gt_all2[-intrain,]
 set.seed(1234)
 pp       = preProcess(training, method = c("nzv", "scale", "center", "YeoJohnson"))
 pptraining   = predict(pp, training)
+pptesting = predict(pp, testing)
 ```
 
-```{r classifier_diffMethods, echo=TRUE, message=FALSE, warning=FALSE, cache=TRUE, fig.height=10, fig.width=10}
+```{r classifier_diffMethods, echo=TRUE, fig.height=10, fig.width=10, message=FALSE, warning=FALSE, cache=TRUE}
 # --- I think this should stay to show that rda was picked based on performance, no bias ---#
 # note - glioma among best performing 
 # --- algorithm/method choice ---#
@@ -99,14 +101,15 @@ measures = vector(length = length(methods), mode = "list")
 for (i in 1:length(methods)) {
     method = methods[i]
     print(method)
-    model.fit   = train(mod_id ~ ., data = training, method = method)
-    predictions = predict(model.fit, testing[,-1])
-    confmat = confusionMatrix(predictions, as.factor(testing$mod_id))
+    model.fit   = train(mod_id ~ ., data = pptraining, method = method)
+    predictions = predict(model.fit, pptesting[,-1])
+    confmat = confusionMatrix(predictions, as.factor(pptesting$mod_id))
     print(confmat)
-    pheatmap(table(predictions, testing$mod_id), scale = "column", cluster_rows=FALSE, cluster_cols=FALSE)
+    pheatmap(table(predictions, pptesting$mod_id), scale = "column", cluster_rows=FALSE, cluster_cols=FALSE)
     names(measures)[i] = method
     measures[[i]] = confmat$byClass
 }
+print(confmat)
 measuresDF = ldply(measures, data.frame)
 ```
 
@@ -144,9 +147,7 @@ plot(rdafit)
 rdafit
 ```
 
-```{r heatmap, echo=TRUE, message=FALSE, warning=FALSE, cache=TRUE, fig.width=10, fig.height=40}
-library(gplots)
-library(RColorBrewer)
+```{r heatmap, echo=TRUE, fig.height=40, fig.width=10, message=FALSE, warning=FALSE, cache=TRUE}
 qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
 col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
 pp2 <- preProcess(gt_all2[,-1], method = c("center", "nzv", "scale", "YeoJohnson"))
@@ -182,6 +183,11 @@ ColorDendrogram(hc=hh, y=col_vector[as.numeric(factor(ss$mod_id))],
                 #labels = ss$mod_id
                 )
 ```
+
+```{r}
+sessionInfo()
+```
+
 
 
 

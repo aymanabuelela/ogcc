@@ -586,5 +586,8 @@ ggplot()+
 ggsave("circ-heatmap-testing.pdf", width = 4, height = 4, device = cairo_pdf)
 ```
 
+```{r}
+sessionInfo()
+```
 
 
